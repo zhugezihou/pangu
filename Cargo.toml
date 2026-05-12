@@ -1,0 +1,53 @@
+[package]
+name = "pangu"
+version = "0.1.0"
+edition = "2021"
+authors = ["zhugezihou"]
+description = "盘古 - Rust写的元Agent，能用工具、有记忆、会进化"
+license = "MIT"
+repository = "https://github.com/zhugezihou/pangu"
+homepage = "https://github.com/zhugezihou/pangu"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client (for LLM API calls)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# SQLite for episodic memory
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Configuration
+config = { version = "0.14", features = ["yaml"] }
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID for session/tool IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Async trait support
+async-trait = "0.1"
+
+# Process execution for shell tool
+duct = "1"
+
+# Regex for pattern matching in evolution
+regex = "1"
+
+# Dir operations
+dirs = "6"
+
+[dev-dependencies]
+tempfile = "3"
