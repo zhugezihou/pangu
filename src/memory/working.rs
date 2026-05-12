@@ -1,8 +1,9 @@
 //! Working Memory - 当前会话上下文，随对话动态增长
 
-use crate::core::{Message, MemoryEntry, MemoryType};
+use crate::core::{Message};
 use crate::llm::provider::LlmMessage;
 
+#[derive(Clone)]
 pub struct WorkingMemory {
     messages: Vec<Message>,
     max_tokens: usize,
@@ -51,7 +52,7 @@ impl WorkingMemory {
         }
         // 保留 system 消息（第一条） + 最近的消息
         let system_msg = self.messages.first().cloned();
-        let rest: Vec<_> = self.messages.drain(keep_recent..).collect();
+        let _rest: Vec<_> = self.messages.drain(keep_recent..).collect();
         let kept: Vec<_> = self.messages.drain(1..).rev().take(keep_recent - 1).collect();
         
         self.messages.clear();

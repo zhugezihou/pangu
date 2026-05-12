@@ -1,11 +1,10 @@
 //! Agent Core - ReAct (Reasoning + Acting) 主循环
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use anyhow::Context;
-use crate::core::{AgentResponse, Message, Role, ToolCall, ToolResult};
+use crate::core::Message;
 use crate::evolution::{ErrorCollector, SelfCorrector, SkillGenerator};
-use crate::llm::provider::{LlmProvider, LlmTool, LlmMessage, LlmToolCall};
+use crate::llm::provider::{LlmProvider, LlmTool};
 use crate::memory::WorkingMemory;
 use crate::tools::registry::ToolRegistry;
 use crate::tools::executor::ToolExecutor;

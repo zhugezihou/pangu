@@ -2,7 +2,7 @@
 
 use rusqlite::{Connection, params};
 use std::path::PathBuf;
-use crate::core::{ErrorRecord, MemoryEntry, MemoryType};
+use crate::core::{ErrorRecord};
 use chrono::{DateTime, Utc};
 
 #[derive(Debug)]

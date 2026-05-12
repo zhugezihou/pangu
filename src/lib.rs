@@ -4,9 +4,9 @@ pub mod core;
 pub mod tools;
 pub mod memory;
 pub mod evolution;
-pub use anyhow::Result;
 pub mod llm;
 pub mod session;
+pub mod gateway;
 
 pub mod prelude {
     pub use crate::core::{AgentResponse, Message, Role, ToolCall, ToolResult, ErrorRecord, Skill, Task};

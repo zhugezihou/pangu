@@ -1,6 +1,5 @@
 //! Error Collector - 收集并记录执行错误
 
-use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use crate::core::ErrorRecord;
 use crate::memory::episodic::EpisodicMemory;

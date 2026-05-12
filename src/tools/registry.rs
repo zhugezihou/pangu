@@ -62,6 +62,18 @@ impl ToolRegistry {
         self.defs.write().unwrap().insert(name, def);
     }
 
+    /// 动态注册工具（通过 JSON Schema，无须实现 Tool trait）
+    pub fn register_dynamic(&self, name: &str, description: &str, parameters: serde_json::Value) -> anyhow::Result<()> {
+        let def = ToolDef {
+            name: name.to_string(),
+            description: description.to_string(),
+            parameters,
+            enabled: true,
+        };
+        self.defs.write().unwrap().insert(name.to_string(), def);
+        Ok(())
+    }
+
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.read().unwrap().get(name).cloned()
     }

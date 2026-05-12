@@ -3,7 +3,6 @@
 use std::time::Instant;
 use crate::tools::registry::ToolRegistry;
 use crate::core::ToolResult;
-use anyhow::Result;
 
 pub struct ToolExecutor {
     registry: ToolRegistry,
@@ -30,7 +29,7 @@ impl ToolExecutor {
             }
         };
 
-        let args_str = serde_json::to_string(&arguments).unwrap_or_default();
+        let _args_str = serde_json::to_string(&arguments).unwrap_or_default();
 
         match tokio::time::timeout(
             std::time::Duration::from_secs(self.default_timeout_secs),

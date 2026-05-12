@@ -59,37 +59,47 @@ impl ToolResult {
     }
 }
 
-/// 记忆条目
+/// LLM消息
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryEntry {
-    pub id: String,
-    pub role: String,
+pub struct Message {
+    pub role: Role,
     pub content: String,
-    pub embedding: Option<Vec<f32>>,
-    pub memory_type: MemoryType,
-    pub importance: f32,
-    pub created_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_results: Option<Vec<ToolResult>>,
 }
 
-impl MemoryEntry {
-    pub fn new(role: &str, content: &str, memory_type: MemoryType) -> Self {
-        Self {
-            id: Uuid::new_v4().to_string(),
-            role: role.to_string(),
-            content: content.to_string(),
-            embedding: None,
-            memory_type,
-            importance: 1.0,
-            created_at: Utc::now(),
-        }
+impl Message {
+    pub fn system(content: &str) -> Self {
+        Self { role: Role::System, content: content.to_string(), tool_calls: None, tool_results: None }
+    }
+    pub fn user(content: &str) -> Self {
+        Self { role: Role::User, content: content.to_string(), tool_calls: None, tool_results: None }
+    }
+    pub fn assistant(content: &str) -> Self {
+        Self { role: Role::Assistant, content: content.to_string(), tool_calls: None, tool_results: None }
+    }
+    pub fn tool(_call_id: &str, content: &str) -> Self {
+        Self { role: Role::Tool, content: content.to_string(), tool_calls: None, tool_results: None }
     }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub enum MemoryType {
-    Working,
-    Episodic,
-    Semantic,
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    System,
+    User,
+    Assistant,
+    Tool,
+}
+
+/// Agent 响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentResponse {
+    pub content: Option<String>,
+    pub tool_calls: Vec<ToolCall>,
+    pub finish_reason: Option<String>,
 }
 
 /// 错误记录
@@ -107,13 +117,7 @@ pub struct ErrorRecord {
 }
 
 impl ErrorRecord {
-    pub fn new(
-        session_id: &str,
-        task: &str,
-        error_type: &str,
-        error_message: &str,
-        context: &str,
-    ) -> Self {
+    pub fn new(session_id: &str, task: &str, error_type: &str, error_message: &str, context: &str) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             session_id: session_id.to_string(),
@@ -131,81 +135,7 @@ impl ErrorRecord {
     }
 }
 
-/// LLM消息
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    pub role: Role,
-    pub content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<ToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_results: Option<Vec<ToolResult>>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum Role {
-    System,
-    User,
-    Assistant,
-    Tool,
-}
-
-impl Message {
-    pub fn system(content: &str) -> Self {
-        Self { role: Role::System, content: content.to_string(), tool_calls: None, tool_results: None }
-    }
-    pub fn user(content: &str) -> Self {
-        Self { role: Role::User, content: content.to_string(), tool_calls: None, tool_results: None }
-    }
-    pub fn assistant(content: &str) -> Self {
-        Self { role: Role::Assistant, content: content.to_string(), tool_calls: None, tool_results: None }
-    }
-    pub fn tool(call_id: &str, content: &str) -> Self {
-        Self { role: Role::Tool, content: content.to_string(), tool_calls: None, tool_results: None }
-    }
-}
-
-/// Agent响应
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum AgentResponse {
-    Text(String),
-    ToolCall(ToolCall),
-    Done(String),
-    Error(String),
-}
-
-/// 任务
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Task {
-    pub id: String,
-    pub description: String,
-    pub status: TaskStatus,
-    pub subtasks: Vec<Task>,
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub enum TaskStatus {
-    Pending,
-    InProgress,
-    Done,
-    Failed,
-}
-
-impl Task {
-    pub fn new(description: &str) -> Self {
-        Self {
-            id: Uuid::new_v4().to_string(),
-            description: description.to_string(),
-            status: TaskStatus::Pending,
-            subtasks: vec![],
-            created_at: Utc::now(),
-        }
-    }
-}
-
-/// 技能（进化引擎生成）
+/// 技能/工具代码
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Skill {
     pub id: String,
@@ -221,13 +151,7 @@ pub struct Skill {
 }
 
 impl Skill {
-    pub fn new(
-        name: &str,
-        description: &str,
-        source_code: &str,
-        tool_name: &str,
-        parameters: serde_json::Value,
-    ) -> Self {
+    pub fn new(name: &str, description: &str, source_code: &str, tool_name: &str, parameters: serde_json::Value) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             name: name.to_string(),
@@ -241,4 +165,21 @@ impl Skill {
             last_used: None,
         }
     }
+}
+
+/// 任务描述
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Task {
+    pub id: String,
+    pub description: String,
+    pub status: TaskStatus,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum TaskStatus {
+    Pending,
+    Running,
+    Done,
+    Failed,
 }

@@ -17,6 +17,10 @@ pub struct OpenAiProvider {
 
 impl OpenAiProvider {
     pub fn new(model: &str, api_key: &str) -> Self {
+        Self::with_base_url(model, api_key, API_URL)
+    }
+
+    pub fn with_base_url(model: &str, api_key: &str, base_url: &str) -> Self {
         let ctx_window = match model {
             m if m.contains("gpt-4o") => 128_000,
             m if m.contains("gpt-4-turbo") => 128_000,
@@ -27,13 +31,9 @@ impl OpenAiProvider {
         Self {
             model: model.to_string(),
             api_key: api_key.to_string(),
-            base_url: None,
+            base_url: Some(base_url.to_string()),
             ctx_window,
         }
-    }
-    pub fn with_base_url(mut self, url: &str) -> Self {
-        self.base_url = Some(url.to_string());
-        self
     }
 }
 
