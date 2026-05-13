@@ -35,6 +35,8 @@ pub struct Message {
 #[derive(Debug)]
 pub struct PendingRequest {
     pub response_rx: Receiver<Result<RunResponse, String>>,
+    pub status_tx: Sender<String>,
+    pub status_rx: Receiver<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +45,7 @@ pub enum AppRequest {
         task: String,
         session_id: Option<String>,
         response_tx: Sender<Result<RunResponse, String>>,
+        status_tx: Sender<String>,
     },
 }
 
@@ -53,6 +56,7 @@ pub struct App {
     pub base_url: String,
     pub running: bool,
     pub waiting: bool,
+    pub waiting_dots: u8,
     pub pending_request: Option<PendingRequest>,
 }
 
@@ -65,6 +69,7 @@ impl App {
             base_url,
             running: true,
             waiting: false,
+            waiting_dots: 0,
             pending_request: None,
         }
     }
@@ -122,11 +127,18 @@ fn http_worker(base_url: String, rx: Receiver<AppRequest>) {
                 task,
                 session_id,
                 response_tx,
+                status_tx,
             } => {
+                // Announce thinking
+                let _ = status_tx.send("🤔 Thinking...".into());
+
                 let mut json_req = serde_json::json!({ "task": task });
                 if let Some(ref sid) = session_id {
                     json_req["session_id"] = serde_json::json!(sid);
                 }
+
+                // Send status updates while waiting
+                let _ = status_tx.send("📡 Calling LLM...".into());
 
                 let result: Result<RunResponse, String> = client
                     .post(format!("{}/v1/run", base_url))
@@ -143,6 +155,14 @@ fn http_worker(base_url: String, rx: Receiver<AppRequest>) {
                         }
                     });
 
+                match &result {
+                    Ok(_) => {
+                        let _ = status_tx.send("✅ Done!".into());
+                    }
+                    Err(_) => {
+                        let _ = status_tx.send("❌ Failed".into());
+                    }
+                }
                 let _ = response_tx.send(result);
             }
         }
@@ -194,9 +214,7 @@ fn draw(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &App) -> Res
         f.render_widget(list, chunks[1]);
 
         // Input
-        let input_text = if app.waiting {
-            format!("> {} [waiting...]", app.input)
-        } else if app.input.is_empty() {
+        let input_text = if app.input.is_empty() {
             "> ".to_string()
         } else {
             format!("> {}", app.input)
@@ -281,15 +299,21 @@ fn handle_key(app: &mut App, key: crossterm::event::KeyEvent, req_tx: &Sender<Ap
                 Sender<Result<RunResponse, String>>,
                 Receiver<Result<RunResponse, String>>,
             ) = channel();
+            let (status_tx, status_rx): (Sender<String>, Receiver<String>) = channel();
             let session_id = app.session_id.clone();
             let _ = req_tx.send(AppRequest::Send {
                 task: input,
                 session_id,
                 response_tx,
+                status_tx: status_tx.clone(),
             });
 
             app.waiting = true;
-            app.pending_request = Some(PendingRequest { response_rx });
+            app.pending_request = Some(PendingRequest {
+                response_rx,
+                status_tx,
+                status_rx,
+            });
         }
         KeyCode::Esc => {
             app.input.clear();
@@ -344,27 +368,59 @@ fn main() -> Result<()> {
             break;
         }
 
-        // Non-blocking check for pending HTTP response
-        if let Some(ref mut pending) = app.pending_request {
-            if let Ok(result) = pending.response_rx.try_recv() {
-                app.waiting = false;
-                match result {
-                    Ok(run_resp) => {
-                        app.session_id = Some(run_resp.session_id.clone());
-                        app.add_assistant(
-                            run_resp.result,
-                            Some(format!(
-                                "{} iter, {} tools",
-                                run_resp.iterations, run_resp.tool_calls
-                            )),
-                        );
-                    }
-                    Err(e) => {
-                        app.add_error(format!("Error: {}", e));
+        // Non-blocking check for pending request and status updates
+        // Use take pattern to avoid nested borrows
+        if app.pending_request.is_some() {
+            let mut statuses = Vec::new();
+            let mut result_val = None;
+
+            // Re-borrow to check/drain
+            if let Some(ref mut pending) = app.pending_request {
+                // Drain status updates
+                while let Ok(status) = pending.status_rx.try_recv() {
+                    statuses.push(status);
+                }
+                // Try to get result (don't remove yet)
+                if let Ok(r) = pending.response_rx.try_recv() {
+                    result_val = Some(r);
+                }
+            }
+
+            // Add status messages to conversation (now safe, no pending borrow)
+            for status in statuses {
+                app.add_system(status);
+            }
+
+            // If response ready, process it (need to re-borrow once more)
+            if result_val.is_some() {
+                if let Some(ref mut pending) = app.pending_request {
+                    if let Ok(result) = pending.response_rx.try_recv() {
+                        app.waiting = false;
+                        match result {
+                            Ok(run_resp) => {
+                                app.session_id = Some(run_resp.session_id.clone());
+                                app.add_assistant(
+                                    run_resp.result,
+                                    Some(format!(
+                                        "{} iter, {} tools",
+                                        run_resp.iterations, run_resp.tool_calls
+                                    )),
+                                );
+                            }
+                            Err(e) => {
+                                app.add_error(format!("Error: {}", e));
+                            }
+                        }
+                        app.pending_request = None;
+                        app.waiting_dots = 0;
                     }
                 }
-                app.pending_request = None;
             }
+        }
+
+        // Animate waiting state
+        if app.waiting {
+            app.waiting_dots = (app.waiting_dots + 1) % 8;
         }
 
         draw(&mut terminal, &app).ok();

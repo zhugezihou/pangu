@@ -1,5 +1,6 @@
 //! Agent Core - ReAct (Reasoning + Acting) 主循环
 
+use tokio::sync::broadcast::Sender;
 use std::sync::Arc;
 use anyhow::Context;
 use crate::core::Message;
@@ -12,6 +13,16 @@ use crate::tools::executor::ToolExecutor;
 const MAX_ITERATIONS: usize = 50;
 const DEFAULT_TEMPERATURE: f32 = 0.7;
 
+/// Agent step event for streaming status
+#[derive(Debug, Clone)]
+pub enum StepEvent {
+    Thinking(String),
+    CallingTool { name: String, call_id: String },
+    ToolResult { name: String, success: bool },
+    /// Final result with execution stats
+    Done { result: String, iterations: usize, tool_calls: usize },
+}
+
 pub struct Agent {
     llm: Arc<dyn LlmProvider>,
     tools: ToolRegistry,
@@ -22,6 +33,9 @@ pub struct Agent {
     skill_generator: SkillGenerator,
     session_id: String,
     max_iterations: usize,
+    pub current_step: usize,
+    step_tx: Option<Sender<StepEvent>>,
+    pub tool_call_count: usize,
 }
 
 impl Agent {
@@ -43,6 +57,20 @@ impl Agent {
             skill_generator: SkillGenerator::new(),
             session_id: session_id.to_string(),
             max_iterations: MAX_ITERATIONS,
+            current_step: 0,
+            step_tx: None,
+            tool_call_count: 0,
+        }
+    }
+
+    pub fn with_step_sender(mut self, tx: Sender<StepEvent>) -> Self {
+        self.step_tx = Some(tx);
+        self
+    }
+
+    fn send_step(&self, event: StepEvent) {
+        if let Some(ref tx) = self.step_tx {
+            let _ = tx.send(event);
         }
     }
 
@@ -64,6 +92,7 @@ impl Agent {
         self.working_memory.push(Message::user(task));
 
         for i in 0..self.max_iterations {
+            self.current_step = i + 1;
             tracing::info!("Iteration {}/{}", i + 1, self.max_iterations);
 
             // 压缩检查
@@ -79,6 +108,11 @@ impl Agent {
             let resp = self.llm.chat(llm_messages, Some(tool_defs), DEFAULT_TEMPERATURE)
                 .await
                 .context("LLM call failed")?;
+
+            // Stream step: LLM responded
+            if let Some(ref content) = resp.content {
+                self.send_step(StepEvent::Thinking(content.clone()));
+            }
 
             // 解析响应
             if !resp.tool_calls.is_empty() {
@@ -101,9 +135,19 @@ impl Agent {
 
                     // 执行工具
                     tracing::info!("Executing tool: {} (call_id={})", tool_name, call_id);
+                    self.send_step(StepEvent::CallingTool {
+                        name: tool_name.clone(),
+                        call_id: call_id.clone(),
+                    });
+                    self.tool_call_count += 1;
                     let result = self.tool_executor
                         .execute(&tool_name, args, call_id.clone())
                         .await;
+
+                    self.send_step(StepEvent::ToolResult {
+                        name: tool_name.clone(),
+                        success: result.success,
+                    });
 
                     // 记录工具结果
                     self.working_memory.push(Message::tool(&call_id, &result.output));
@@ -122,13 +166,25 @@ impl Agent {
             } else if let Some(content) = resp.content {
                 // 文本响应（可能包含思考过程）
                 let content = content.trim();
-                if content.to_lowercase().contains("任务完成") 
+                if content.to_lowercase().contains("任务完成")
                     || content.to_lowercase().contains("done")
                     || content.to_lowercase().contains("完成") {
                     self.working_memory.push(Message::assistant(content));
-                    return Ok(content.to_string());
+                    let result = content.to_string();
+                    self.send_step(StepEvent::Done {
+                        result: result.clone(),
+                        iterations: self.current_step,
+                        tool_calls: self.tool_call_count,
+                    });
+                    return Ok(result);
                 }
                 self.working_memory.push(Message::assistant(content));
+                let result = content.to_string();
+                self.send_step(StepEvent::Done {
+                    result: result.clone(),
+                    iterations: self.current_step,
+                    tool_calls: self.tool_call_count,
+                });
                 // 检查是否在思考而非结束
                 if i == self.max_iterations - 1 {
                     return Ok(content.to_string());
